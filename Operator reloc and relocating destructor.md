@@ -282,7 +282,7 @@ The return statement may cause another relocation if NRVO not happened.
 Firstly, `std::default_delete` will have a new overload of `operator()`, whose declaration is
 
 ```C++
-void operator(T*, std::destroy_delete_t).
+void operator()(T*, std::destroy_delete_t).
 ```
 
 It will choose proper overload of `operator delete` and use it to deallocate the storage without calling the destructor.
