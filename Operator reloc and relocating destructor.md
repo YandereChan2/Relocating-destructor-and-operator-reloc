@@ -55,7 +55,7 @@ After using the operator `reloc` on an identifier, the compiler needs to "rememb
 
 The rule of the usage of reloc is similar to the chapter 5.1.4 _Early end-of-scope_ in [P2785R3](https://wg21.link/p2785R3).
 
-However, not same to the chapter 5.1.5 _Conditional relocation_ [P2785R3](https://wg21.link/p2785R3), this will result in the calling of the normal destructor of the relocated variable in the unrelocated path.Unless there is another usage of the relocated variable after the `if` statement, the complier will not check whether the destructor should be called later.
+However, not same to the chapter 5.1.5 _Conditional relocation_ [P2785R3](https://wg21.link/p2785R3), this will result in the calling of the normal destructor of the relocated variable in the unrelocated path.Unless the relocated path will end up in return or jumping out of the scope of this variable.
 
 ### 2.3 The detail of the relocating destructor
 
