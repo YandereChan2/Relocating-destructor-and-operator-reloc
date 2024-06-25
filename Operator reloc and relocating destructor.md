@@ -51,72 +51,11 @@ In this paper, the expression reloc(expr) where expr is an unparenthesized id-ex
 
 Normally, identifier `expr` must be an object (not reference,or the “reference” create by structured binding) with automatic storage duration or an array with a [converted constant expression](https://en.cppreference.com/w/cpp/language/constant_expression) of type [`std::size_t`](https://en.cppreference.com/w/cpp/types/size_t) index (for multi-dimensional array, there must be enough indexes to guarantee the type of expr is not an array). But, if in the destructor or relocating destructor of a class, `expr` can also be the member of this class or the directly base class subobject of this class (by using expression like `*(Base*)this` which is obviously point to this subobject).
 
-After using the operator `reloc` on an identifier, the compiler needs to “remember” this variable is destructed and will not destruct it again at the end of the function body. In fact, unless this identifier is an array, the scope of this identifier will be ended. Here are some examples. (Notice that this is just an example demo, and relocate an automatic variable to another automatic variable is not recommended.)
+After using the operator `reloc` on an identifier, the compiler needs to "remember" this variable is destructed and will not destruct it again at the end of the function body. In fact, unless this identifier is an array, the scope of this identifier will be ended.
 
-```C++
-void f()
-{
-    A a{};
-    // works...
-    A a1 = reloc(a);
-    // now &a or any usage of a is ill-formed
-    if (/*...*/)
-    {
-        A a2 = reloc(a1);
-    }
-    else
-    {
-        A a2 = reloc(a1);
-    }
-    // OK: in every branch of control flow a1 is relocated
-    // &a1; // Error!
-    A a3{};
-    while (/*...*/)
-    {
-        //A a4=reloc(a3); // Error!
-        if (/*...*/)
-        {
-            A a4 = reloc(a3);
-            return; /* OK: the return expressions ensure that a3 will not be reloc twice. */
-        }
-        else
-        {
-            // A a4 = reloc(a3); // Error!
-        }
-    }
-    // a3; // Error!
-    A a5{};
-    do
-    {
-        A a6 = a5;
-        // OK: special do-while(0) loop
-    } while (0);
-    A a7{};
-    if (/*...*/)
-    {
-        A a8=reloc(a7);
-        // todo...
-    }
-    else
-    {
-        // not reloc
-        // todo...
-    }
-    // There are two opinions.
-    // 1.This program is ill-formed
-    // 2. a7 will be destructed at the end of the else part.
-    static A* ptr = (A*)malloc(sizeof(A));
-    A a9{};
-    new (ptr) A(reloc(a9));
-    // OK
-    // A a10 = reloc(*ptr); //Error!
-    A a10 = ptr->~A(42);
-    // OK
-    // *ptr; // UB!
-}
-```
+The rule of the usage of reloc is similar to the chapter 5.1.4 _Early end-of-scope_ in [P2785R3](https://wg21.link/p2785R3).
 
-The detail of the effect of the operator `reloc` on the scope of a variable is talked in other proposals. This paper just take a small part which is simple enough from them.
+However, not same to the chapter 5.1.5 _Conditional relocation_ [P2785R3](https://wg21.link/p2785R3), this will result in the calling of the normal destructor of the relocated variable in the unrelocated path.Unless there is another usage of the relocated variable after the `if` statement, the complier will not check whether the destructor should be called later.
 
 ### 2.3 The detail of the relocating destructor
 
@@ -124,7 +63,64 @@ The detail of the effect of the operator `reloc` on the scope of a variable is t
 
 1. In the function body of the relocating destructor or the normal destructor, the (non-static) data member subobject and the base class subobject will just work like the automatic variable and you can relocate it.
 
-2. In the function body of the relocating destructor,we can(but not must) use Designated initialization to construct an object with the same type to try our best to enjoy the benefit of the copy elision. That is, we can `return {/*base class expr*/...,.member1{...},.member2{...},...};`. Even in the non-aggregate class. In addition, we require the compiler to try its best to use NRVO in the relocating destructor. That is, between the declaration of the NRVO variable and the return expression, if there is no other return expression that not return this variable, or any other declaration of the variable with same type (ignoring _cv_), the NRVO will always happen.
+2. In the function body of the relocating destructor,we can(but not must) use Designated initialization to construct an object with the same type to try our best to enjoy the benefit of the copy elision. That is, we can `return {/*base class expr*/...,.member1{...},.member2{...},...};`. Even in the non-aggregate class. In addition, we require the compiler to try its best to use NRVO in the relocating destructor.At least, if there is just one declaration of the variable with the same type (ignoring _cv_) before the `return` statement at the same time, and will never return any unnamed value after it,the NRVO will be guaranteed.Here are some examples:
+
+```C++
+class T
+{
+    //...
+public:
+    T ~T(int)
+    {
+        if(/*...*/)
+        {
+            return {/*...*/};//RVO
+        }
+        if(/*...*/)
+        {
+            T t{/*...*/};
+            //todo,no any other return expressions
+            return t;//guarantee NRVO
+        }
+        if(/*...*/)
+        {
+            T t{/*...*/}
+            if(/*...*/)
+            {
+                //...
+                return t;
+            }
+            else
+            {
+                //...
+                return t;
+            }
+            //unreachable,guarantee NRVO
+        }
+        if(/*...*/)
+        {
+            T t{/*...*/}
+            if(/*...*/)
+            {
+                //...
+                return t;
+            }
+            else
+            {
+                //...
+                return {/*...*/};
+            }
+            //no NRVO
+        }
+        if(/*...*/)
+        {
+            T t1{/*...*/},t2{/*...*/};
+            //...
+            return t1;//decided by the complier
+        }
+    }
+}
+```
 
 3. In any class `T`, we can define the relocating destructor as `T ~T(int) = default;`. That means it will just use the operator `reloc` to relocate every of its subobject to the new address. Here is an example.
 
