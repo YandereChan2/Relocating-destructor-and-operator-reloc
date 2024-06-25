@@ -336,7 +336,7 @@ public:
         [[assume(_ptr!=nullptr)]];
         delete _ptr;
     }
-    ~not_null_unique_ptr(int)=default;
+    not_null_unique_ptr ~not_null_unique_ptr(int)=default;
     const T& operator*()const
     {return *_ptr;}
     T& operator*()
