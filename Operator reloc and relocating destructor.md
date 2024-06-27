@@ -1,7 +1,7 @@
 # Operator reloc and relocating destructor
 
 **Authors:**
-Qiuyi Li
+[Qiuyi Li](2894707375@qq.com)
 
 **Audience:**
 EWG, LEWG
