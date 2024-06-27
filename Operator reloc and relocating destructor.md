@@ -42,20 +42,26 @@ The detail of the definition of the relocating will be talked later in this pape
 
 In many other proposals, this operator is also defined.
 
-In this paper, the expression reloc(expr) where expr is an unparenthesized id-expression with type T will be treat like this:
+The gramma of operator reloc is:
+
+```C++
+reloc(expr)
+```
+
+In this paper, the expression `reloc(expr)` where expr is an unparenthesized id-expression with type T will be treat like this:
 
 - `expr.~T(0)`, if `T` has a relocating destructor,or `T` is trivially-copyable (this will just return expr itself.).
 
 - `[](T& t) {  T ret(std::move(t)) /* used for NRVO, but guaranteed */;  t.~T();  return ret; }(expr)`, if `T` doesn’t have this destructor,and is not trivially-copyable.
   The lambda expression is just for explain.
 
-Normally, identifier `expr` must be an object (not reference,or the “reference” create by structured binding) with automatic storage duration or an array with a [converted constant expression](https://en.cppreference.com/w/cpp/language/constant_expression) of type [`std::size_t`](https://en.cppreference.com/w/cpp/types/size_t) index (for multi-dimensional array, there must be enough indexes to guarantee the type of expr is not an array). But, if in the destructor or relocating destructor of a class, `expr` can also be the member of this class or the directly base class subobject of this class (by using expression like `*(Base*)this` which is obviously point to this subobject).
+Normally, identifier `expr` must be a variable (not reference,or the “reference” create by structured binding) with automatic storage duration or an array with automatic storage duration with a [converted constant expression](https://en.cppreference.com/w/cpp/language/constant_expression) of type [`std::size_t`](https://en.cppreference.com/w/cpp/types/size_t) index (for multi-dimensional array, there must be enough indexes to guarantee the type of expr is not an array). But, if in the destructor or relocating destructor of a class, `expr` can also be the member of this class or the directly base class subobject of this class (by using expression like `*(Base*)this` which is obviously point to this subobject).
 
 After using the operator `reloc` on an identifier, the compiler needs to "remember" this variable is destructed and will not destruct it again at the end of the function body. In fact, unless this identifier is an array, the scope of this identifier will be ended.
 
 The rule of the usage of reloc is similar to the chapter 5.1.4 _Early end-of-scope_ in [P2785R3](https://wg21.link/p2785R3).
 
-However, not same to the chapter 5.1.5 _Conditional relocation_ [P2785R3](https://wg21.link/p2785R3), this will result in the calling of the normal destructor of the relocated variable in the unrelocated path.Unless the relocated path will end up in return or jumping out of the scope of this variable.
+However, not same to the chapter 5.1.5 _Conditional relocation_ [P2785R3](https://wg21.link/p2785R3), this will result in the calling of the normal destructor of the relocated variable in the unrelocated path unless that paths will always get out of the scope of the variable.
 
 ### 2.3 The detail of the relocating destructor
 
@@ -282,7 +288,7 @@ The return statement may cause another relocation if NRVO not happened.
 Firstly, `std::default_delete` will have a new overload of `operator()`, whose declaration is
 
 ```C++
-void operator()(T*, std::destroy_delete_t).
+void operator(T*, std::destroy_delete_t).
 ```
 
 It will choose proper overload of `operator delete` and use it to deallocate the storage without calling the destructor.
@@ -543,3 +549,21 @@ public:
     }
 }
 ```
+
+## 5.Comparison with existing proposals
+
+This proposal introduce a new destructor `T ~T(int)` which work with copy elision to give the users a flexible and easy way to customized the behavior of relocating.Not only in the trivial cases we can give more information to the compiler to optimize the code, but also in the not trivial cases we can do more things than _move and destruct_.
+
+### 5.1 P2785R3 Relocating prvalues by Sébastien Bini and Ed Catmur
+
+This proposal introduce a new constructor `T(T)` and do some changes to overload resolution rules.In addition, it will break the ABI. To be honest, this proposal cause too much changes and too difficult. In addition, I don't think this proposal take enough care of the relocation of the objects on the dynamic memory.
+
+However, the keyword `reloc` and the changes of the scope is talked perfectly in this proposal and I just use it in my paper.
+
+### 5.2 D2839R1 Nontrivial Relocation via a New owning reference Type
+
+In this document they introduce a new type of reference and I also think is too complex and my proposal can do the same thing in a easier way.
+
+### 5.3 Other proposals about trivially relocatable
+
+There are other proposals that focus on the trivial cases. I don't think it is enough.
