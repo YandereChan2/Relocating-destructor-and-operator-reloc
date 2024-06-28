@@ -18,7 +18,7 @@ In C++11, we have rvalue reference, move constructor and move-assignment operato
 
 However, in many cases, the call of the destructor is just useless, and the call of the move constructor is just like a simple memcpy. For the sake of the Zero-overhead rule, we need a new way to solve this problem.
 
-Moreover,sometimes we may want to have a not-null type,that means,the type can’t copy and move,but it’s OK to relocate it.For example,we can define a `not_null_unique_ptr`.<!-- JA: WHY do we want this? At least I (Jiang An) don't want it. -->
+Moreover, sometimes we may want to have a non-nullable type, that means, the type can’t be copied and moved, but it’s OK to relocate it. For example, we can define a non-nullable version of `indirect_value` in [P1950R2](https://wg21.link/p1950r2).
 
 The proposal introduces:
 
@@ -288,7 +288,7 @@ The return statement may cause another relocation if NRVO not happened.
 Firstly, `std::default_delete` will have a new overload of `operator()`, whose declaration is
 
 ```C++
-void operator(T*, std::destroy_delete_t).
+void operator()(T*, std::destroy_delete_t);
 ```
 
 It will choose proper overload of `operator delete` and use it to deallocate the storage without calling the destructor.
@@ -317,44 +317,32 @@ Like `std::vector`, `std::deque` will also benefit from relocating destructor wh
 
 ## 4. Simple examples
 
-### 4.1 not_null_unique_ptr
+### 4.1 `indirect_value`
 
 ```C++
 template<class T>
-class not_null_unique_ptr
+class indirect_value
 {
     T* _ptr;
 public:
     template<class... Args>
-    not_null_unique_ptr(Args&&... args):_ptr{new T(std::forward(args...))}
-    {
-    }
-    not_null_unique_ptr(const not_null_unique_ptr&)=delete;
-    not_null_unique_ptr(not_null_unique_ptr&&)=delete;
-    auto operator=(const not_null_unique_ptr&)=delete;
-    auto operator=(not_null_unique_ptr&&)=delete;
-    ~not_null_unique_ptr()
-    {
-        [[assume(_ptr!=nullptr)]];
-        delete _ptr;
-    }
-    not_null_unique_ptr ~not_null_unique_ptr(int)=default;
-    const T& operator*()const
-    {return *_ptr;}
-    T& operator*()
-    {return *_ptr;}
-    const T* operator->()const
-    {return _ptr;}
-    T* operator->()
-    {return _ptr;}
-    void swap(not_null_unique_ptr& other)const
-    {
-        std::swap(_ptr,other._ptr);
-    }
+    indirect_value(Args&&... args) : _ptr{new T(std::forward(args...))} {}
+    indirect_value(const indirect_value&) = delete;
+    indirect_value(indirect_value&&) = delete;
+    void operator=(const indirect_value&) = delete;
+    void operator=(indirect_value&&) = delete;
+    ~indirect_value() { [[assume(_ptr != nullptr)]]; delete _ptr; }
+    indirect_value ~indirect_value(int) = default;
+
+    const T& operator*() const noexcept { return *_ptr; }
+    T& operator*() noexcept             { return *_ptr; }
+    const T* operator->() const noexcept { return _ptr; }
+    T* operator->() noexcept             { return _ptr; }
+    void swap(indirect_value& other) const noexcept { std::swap(_ptr,other._ptr); }
 };
 ```
 
-This class can’t copy or move, but it can relocate and swap.There will never be a nullptr in this class.In fact, this is a strict RAII style smart pointer.We can even put it into the vector, however, we can only take out them by using the relocating member function.Here are some example.
+This class can’t be copied or moved, but it can be relocated and swapped. There will never be a null pointer in this class. In fact, this can be considered as a strict RAII style smart pointer. We can even put it into a `vector`, however, we can only take out them by using the relocating member function. Here are some examples.
 
 ```C++
 struct point
@@ -374,12 +362,12 @@ void show()
         }
     }
 }
-void display(not_null_unique_ptr<point> p)
+void display(indirect_value<point> p)
 {
     screen[p->x][p->y]++;
     //p will be destructed here
 }
-void consume(std::vector<not_null_unique_ptr<point>>& v)
+void consume(std::vector<indirect_value<point>>& v)
 {
     while(!v.empty())
     {
@@ -390,7 +378,7 @@ void consume(std::vector<not_null_unique_ptr<point>>& v)
 }
 int main()
 {
-    std::vector<not_null_unique_ptr<point>>tmp(10);
+    std::vector<indirect_value<point>>tmp(10);
     for(size_t i=0;i<10;i++)
     {
         tmp.emplace_back(i,1);
@@ -400,7 +388,7 @@ int main()
     std::cout<<”####################\n”;
     for(size_t i=0;i<5;i++)
     {
-        not_null_unique_ptr<point> p{i,i};
+        indirect_value<point> p{i,i};
         //tmp.push_back(p);
         //Error!
         tmp.relocate_in_back(reloc(p));
@@ -412,7 +400,7 @@ int main()
 }
 ```
 
-The result of the code is:
+The otuput of the code is:
 
 ```unknown
 0 0 0 0 0 0 0 0 0 0
@@ -432,7 +420,7 @@ vector size: 0
 
 ### 4.2 (simple) self-reference list
 
-A list may use self-reference to implement the end iterator.Here is the destructor of it.
+A doubly-linked list container like `std::list` may use self-reference to implement the end iterator to avoid dynamic allocation for the empty state. Here is the destructor of it.
 
 ```C++
 //We assume the list node is an array of the struct 
@@ -472,7 +460,7 @@ public:
 
 ### 4.3 (simple) self-reference string
 
-Sometimes, self-reference also exist in the string object.
+Sometimes, self-reference also exist in the string object. For example, libstdc++'s SSO `basic_string` implementation holds a pointer that conditionally points to a buffer inside the string object.
 
 ```C++
 class my_string
@@ -509,7 +497,7 @@ public:
 
 ### 4.4 Register object
 
-Here is a simple demo of a class register itself into a global `std::unordered_map` .
+Here is a simple demo of a class register itself into a global `std::unordered_map`.
 
 ```C++
 class my_class
@@ -552,11 +540,11 @@ public:
 
 ## 5.Comparison with existing proposals
 
-This proposal introduce a new destructor `T ~T(int)` which work with copy elision to give the users a flexible and easy way to customized the behavior of relocating.Not only in the trivial cases we can give more information to the compiler to optimize the code, but also in the not trivial cases we can do more things than _move and destruct_.
+This proposal introduce a new destructor `T ~T(int)` which work with copy elision to give the users a flexible and easy way to customized the behavior of relocating. Not only in the trivial cases we can give more information to the compiler to optimize the code, but also in the not trivial cases we can do more things than _move and destruct_.
 
 ### 5.1 P2785R3 Relocating prvalues by Sébastien Bini and Ed Catmur
 
-This proposal introduce a new constructor `T(T)` and do some changes to overload resolution rules.In addition, it will break the ABI. To be honest, this proposal cause too much changes and too difficult. In addition, I don't think this proposal take enough care of the relocation of the objects on the dynamic memory.
+This proposal introduce a new constructor `T(T)` and do some changes to overload resolution rules. In addition, it will break the ABI. To be honest, this proposal cause too much changes and too difficult. In addition, I don't think this proposal take enough care of the relocation of the objects on the dynamic memory.
 
 However, the keyword `reloc` and the changes of the scope is talked perfectly in this proposal and I just use it in my paper.
 
